@@ -6,6 +6,7 @@ using System.Data;
 using MySql.Data.MySqlClient;
 using System.Xml.Serialization;
 using FieldLogger.Service.Xml;
+using System.Text;
 
 namespace FieldLogger.Service
 {
@@ -39,7 +40,7 @@ namespace FieldLogger.Service
 
         private void Executar()
         {
-            string xml = ObterDados();
+            string xml = ObterDados2();
             var serializer = new XmlSerializer(typeof(Channels));
 
             using (TextReader reader = new StringReader(xml))
@@ -59,6 +60,16 @@ namespace FieldLogger.Service
             IRestResponse response = restClient.Get(restRequest);
             return response.Content;
         }
+
+        private string ObterDados2()
+        {
+            RestClient restClient = new RestClient("http://romiotto.dyndns.info:5000/channels.xml");
+            RestRequest restRequest = new RestRequest(Method.GET);
+            IRestResponse response = restClient.Execute(restRequest);
+            Encoding encoding = Encoding.GetEncoding("ISO-8859-1");
+            return encoding.GetString(response.RawBytes);
+        }
+
 
         private void InserirCanal(Channel channel,DateTime hora)
         {
