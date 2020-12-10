@@ -7,40 +7,66 @@ using MySql.Data.MySqlClient;
 using System.Xml.Serialization;
 using FieldLogger.Service.Xml;
 using System.Text;
+using Microsoft.Extensions.Configuration;
+using System.Reflection;
 
 namespace FieldLogger.Service
 {
     public class LeitorService
     {
+        private readonly string pathExe = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+        private  IConfigurationRoot _configuration;
         private readonly Timer _timer;
         public LeitorService()
         {
-            _timer = new Timer(10000) {AutoReset = true};
-            _timer.Elapsed += (sender, eventArgs) => {
+            try
+            {
+                CarregarConfig();
+                int tempoExecucaoServicoEmMinutos = int.Parse(_configuration["TempoExecucaoServicoEmMinutos"].ToString());
+                int tempoExecucaoEmMiliSegundos= tempoExecucaoServicoEmMinutos * 60000;
+                _timer = new Timer(tempoExecucaoEmMiliSegundos) {AutoReset = true};
+                _timer.Elapsed += Timer_Elapsed;
+                GravarLog($"Serviço iniciado às {DateTime.Now.ToString("dd/MM/yyyy HH:mm:ss")}");
+            }
+            catch(Exception ex)
+            {
+                GravarLogErro(ex.Message);
+            }
+        }
+
+        public void Start()
+        {
+            if(_timer!=null)
+                _timer.Start();
+        }
+
+        public void Stop()
+        {
+            if(_timer!=null)            
+                _timer.Stop();
+        }
+
+        private void Timer_Elapsed(object sender, EventArgs eventArgs)
+        {
                 _timer.Stop();
                 try{
+  
                     Executar();
+                }
+                catch(Exception ex)
+                {
+                    GravarLogErro(ex.Message);
+
                 }
                 finally
                 {
                     _timer.Start();
                 }
-            };
-        }
-
-        public void Start()
-        {
-            _timer.Start();
-        }
-
-        public void Stop()
-        {
-            _timer.Stop();
         }
 
         private void Executar()
         {
-            string xml = ObterDados2();
+            string xml = ObterDados();
             var serializer = new XmlSerializer(typeof(Channels));
 
             using (TextReader reader = new StringReader(xml))
@@ -54,17 +80,8 @@ namespace FieldLogger.Service
 
         private string ObterDados()
         {
-            RestClient restClient = new RestClient("http://romiotto.dyndns.info:5000/channels.xml");
-            RestRequest restRequest = new RestRequest();
-            restRequest.Method = Method.GET;
-            IRestResponse response = restClient.Get(restRequest);
-            return response.Content;
-        }
-
-        private string ObterDados2()
-        {
-            RestClient restClient = new RestClient("http://romiotto.dyndns.info:5000/channels.xml");
-            RestRequest restRequest = new RestRequest(Method.GET);
+            RestClient restClient = new RestClient(_configuration["FieldLoggerConnection"]);
+            RestRequest restRequest = new RestRequest("channels.xml",Method.GET);
             IRestResponse response = restClient.Execute(restRequest);
             Encoding encoding = Encoding.GetEncoding("ISO-8859-1");
             return encoding.GetString(response.RawBytes);
@@ -73,8 +90,7 @@ namespace FieldLogger.Service
 
         private void InserirCanal(Channel channel,DateTime hora)
         {
-            var connString = "Server=sql10.freesqldatabase.com;Database=sql10380992;Uid=sql10380992;Pwd=jRz9fkDAbR"; 
-            var connection = new MySqlConnection(connString);
+            var connection = new MySqlConnection(_configuration["ConnectionStrings:MySqlConnection"]);
             var command = connection.CreateCommand();
             command.CommandText = $"Insert Into Channel (Tag,Value,Unit,Logged,Date) Values (@Tag,@Value,@Unit,@Logged,@Date)";
             command.Parameters.AddWithValue("@Tag",channel.Tag);
@@ -92,6 +108,28 @@ namespace FieldLogger.Service
             {
                 if(connection.State == ConnectionState.Open)
                     connection.Close();            
+            }
+        }
+
+        private void CarregarConfig()
+        {
+            var builder = new ConfigurationBuilder()
+                .SetBasePath(pathExe)
+                .AddJsonFile("appsettings.json");
+
+            _configuration = builder.Build();            
+        }
+
+        private void GravarLogErro(string mensagem)
+        {
+            GravarLog("Erro:"+mensagem );
+        }
+        private void GravarLog(string mensagem)
+        {
+            string pathLog= Path.Combine(pathExe,"log.txt");
+            using (StreamWriter log = File.AppendText(pathLog))
+            {
+                log.WriteLine(mensagem);
             }
         }
     }
